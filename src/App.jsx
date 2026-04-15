@@ -1,5 +1,6 @@
 
 import { useEffect, useMemo, useState } from 'react'
+import Login from './Login'
 import {
   FiArchive,
   FiCalendar,
@@ -201,6 +202,8 @@ function App() {
   const [techInput, setTechInput] = useState('')
   const [historyFilters, setHistoryFilters] = useState({ date: '', driveType: 'All', technologyId: 'All' })
   const [gradeInput, setGradeInput] = useState((storedData?.gradeLevels || seed.gradeLevels).join(', '))
+
+  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('isLoggedIn') === 'true')
 
   const activeTechnologies = useMemo(() => technologies.filter((item) => item.active), [technologies])
   const activeTRByTech = useMemo(() => {
@@ -437,6 +440,10 @@ function App() {
     { id: 'history', label: 'History', icon: <FiClock /> },
     { id: 'settings', label: 'Settings', icon: <FiSettings /> },
   ]
+
+  if (!isLoggedIn) {
+    return <Login onLogin={() => setIsLoggedIn(true)} />
+  }
 
   return (
     <div className="app-shell">

@@ -1,17 +1,64 @@
-# React + Vite
+# TCS BOA Panel
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A Progressive Web App (PWA) for managing BOA panel scheduling and assignments.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Daily TR/MR scheduling with smart rest rotation
+- Associate management
+- Technology tracking
+- History logging
+- PWA support (installable, offline-capable)
 
-## React Compiler
+## Authentication
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+To access the application, use the following credentials:
 
-## Expanding the ESLint configuration
+- **Username:** tcspanellist@bofa.com
+- **Password:** NiladriGhoshal19
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-# tcs_boa_panel
+Once logged in, the session persists until the browser cache/storage is cleared. No logout functionality is provided - users stay logged in permanently unless manually clearing data.
+
+## Development
+
+### Prerequisites
+
+- Node.js (v16 or higher)
+- npm
+
+### Installation
+
+```bash
+npm install
+```
+
+### Running the App
+
+```bash
+npm run dev
+```
+
+The app will be available at `http://localhost:5173/`
+
+### Building for Production
+
+```bash
+npm run build
+```
+
+### Preview Production Build
+
+```bash
+npm run preview
+```
+
+## Deployment
+
+The app is configured as a PWA and can be deployed to static hosting platforms like Vercel, Netlify, or GitHub Pages.
+
+## Tech Stack
+
+- React 19
+- Vite
+- React Icons
+- PWA with vite-plugin-pwa
