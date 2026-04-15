@@ -1,5 +1,8 @@
 import { useState } from 'react'
 
+const LOGIN_USERNAME = 'tata consultancy services panellist @ bank of finance Amarica dot com'
+const LOGIN_PASSWORD = 'developername birthdate'
+
 const Login = ({ onLogin }) => {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -7,7 +10,7 @@ const Login = ({ onLogin }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (username === 'tcspanellist@bofa.com' && password === 'NiladriGhoshal19') {
+    if (username.trim().toLowerCase() === LOGIN_USERNAME.toLowerCase() && password === LOGIN_PASSWORD) {
       localStorage.setItem('isLoggedIn', 'true')
       onLogin()
     } else {
@@ -35,12 +38,16 @@ const Login = ({ onLogin }) => {
         <div style={{ marginBottom: '1rem' }}>
           <label style={{ display: 'block', marginBottom: '0.5rem' }}>Username:</label>
           <input
-            type="email"
+            type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            placeholder={LOGIN_USERNAME}
             required
             style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px' }}
           />
+          <small style={{ color: '#666' }}>
+            Suggestion: {LOGIN_USERNAME}
+          </small>
         </div>
         <div style={{ marginBottom: '1.5rem' }}>
           <label style={{ display: 'block', marginBottom: '0.5rem' }}>Password:</label>
@@ -48,9 +55,13 @@ const Login = ({ onLogin }) => {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            placeholder={LOGIN_PASSWORD}
             required
             style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px' }}
           />
+          <small style={{ color: '#666' }}>
+            Suggestion: developername birthdate
+          </small>
         </div>
         <button type="submit" style={{
           width: '100%',

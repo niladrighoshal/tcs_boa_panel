@@ -248,6 +248,12 @@ textarea:focus {
   gap: 8px;
 }
 
+.time-picker {
+  display: grid;
+  grid-template-columns: 1fr 88px;
+  gap: 8px;
+}
+
 .icon-link {
   width: 38px;
   height: 38px;
@@ -270,6 +276,10 @@ textarea:focus {
   color: #98a8b2;
   background: #eef3f6;
   pointer-events: none;
+}
+
+.force-msg-btn {
+  margin-left: auto;
 }
 
 .badge {
@@ -384,6 +394,27 @@ textarea:focus {
   display: none;
 }
 
+.creator-credit {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  color: var(--muted);
+}
+
+.creator-credit p {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+}
+
+.creator-credit a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--brand-strong);
+  text-decoration: none;
+  font-weight: 700;
+}
+
 @media (min-width: 760px) {
   .topbar h1 {
     font-size: 1.4rem;
@@ -398,7 +429,7 @@ textarea:focus {
   }
 
   .recipient-row {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr 1fr auto;
     align-items: end;
   }
 

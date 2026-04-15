@@ -21,10 +21,11 @@ import {
   FiUsers,
   FiX,
 } from 'react-icons/fi'
-import { FaWhatsapp } from 'react-icons/fa'
+import { FaGithub, FaWhatsapp } from 'react-icons/fa'
 import { EMPLOYEE_DIRECTORY, findDirectoryByEmpId, findDirectoryByName } from './employeeDirectory'
 
 const STORAGE_KEY = 'boa_panel_manager_v1'
+const STORAGE_VERSION = 2
 const STATUS_OPTIONS = ['Pending', 'Available', 'Not Available', 'No Response', 'Call Back Later', 'Force Assign']
 const DRIVE_TYPES = ['Virtual Drive', 'Physical Drive']
 const PHYSICAL_LOCATIONS = ['Chennai', 'Hyderabad', 'Bangalore', 'Mumbai', 'Ahmedabad', 'Indore']
@@ -32,6 +33,20 @@ const PHYSICAL_LOCATIONS = ['Chennai', 'Hyderabad', 'Bangalore', 'Mumbai', 'Ahme
 const createId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 const normalizePhone = (phone) => phone.replace(/\s+/g, ' ').trim()
 const toWhatsappNumber = (phone) => phone.replace(/[^\d]/g, '')
+const getWhatsappChatUrl = (phone, text = '') => {
+  const number = toWhatsappNumber(phone)
+  return text ? `https://wa.me/${number}?text=${encodeURIComponent(text)}` : `https://wa.me/${number}`
+}
+const getWhatsappCallUrl = (phone) => `whatsapp://call?phone=${toWhatsappNumber(phone)}`
+const isValidQuarterHourSlot = (value) => {
+  if (!value) return false
+  const [h, m] = value.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return false
+  return m === 0 || m === 15 || m === 30 || m === 45
+}
+const normalizeTimeSlot = (value, fallback = '10:00') => (isValidQuarterHourSlot(value) ? value : fallback)
+const WORK_HOUR_OPTIONS = Array.from({ length: 13 }, (_, index) => 10 + index)
+const MINUTE_OPTIONS = ['00', '15', '30', '45']
 
 const formatDisplayDate = (isoDate) => {
   if (!isoDate) return ''
@@ -144,7 +159,36 @@ MR Grade: ${mr.grade}
 MR Timings: ${fmtTime(mrStart)} - ${fmtTime(mrEnd)}`
 }
 
-const defaultTechnologies = ['Java', '.NET', 'Python', 'Automation Testing', 'PLSQL', 'Informatica'].map((name) => ({
+function TimeSlotPicker({ value, onChange }) {
+  const normalized = normalizeTimeSlot(value, '10:00')
+  const [hourRaw, minuteRaw] = normalized.split(':')
+  const hour = Number(hourRaw)
+  const minute = minuteRaw === '30' ? '30' : '00'
+
+  return (
+    <div className="time-picker">
+      <select
+        value={Number.isNaN(hour) ? 10 : hour}
+        onChange={(e) => onChange(`${String(Number(e.target.value)).padStart(2, '0')}:${minute}`)}
+      >
+        {WORK_HOUR_OPTIONS.map((slotHour) => (
+          <option key={slotHour} value={slotHour}>
+            {fmtTime(`${String(slotHour).padStart(2, '0')}:00`).replace(':00', '')}
+          </option>
+        ))}
+      </select>
+      <select value={minute} onChange={(e) => onChange(`${String(hour).padStart(2, '0')}:${e.target.value}`)}>
+        {MINUTE_OPTIONS.map((slotMinute) => (
+          <option key={slotMinute} value={slotMinute}>
+            {slotMinute}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+const defaultTechnologies = ['Java', 'Dot Net', 'Python', 'Automation Testing', 'PLSQL', 'Informatica'].map((name) => ({
   id: createId(),
   name,
   active: true,
@@ -159,9 +203,9 @@ const buildSeedData = () => {
     ['Sravani Miriyala', '1612445', '+91 98925 05762', 'TR', 'Java', 'C3A'],
     ['Rakesh Konduru', '2363338', '+91 94949 94854', 'TR', 'Java', 'C3A'],
     ['M Aarthy', '2727718', '+91 93617 87050', 'TR', 'Java', 'C3A'],
-    ['Chinmayi Naga Paranandi', '2123111', '+91 81060 19440', 'TR', '.NET', 'C3A'],
-    ['Sandip Lakum', '2495365', '+91 76989 68097', 'TR', '.NET', 'C3A'],
-    ['Pooja Singh', '2461315', '+91 91670 14597', 'TR', '.NET', 'C3A'],
+    ['Chinmayi Naga Paranandi', '2123111', '+91 81060 19440', 'TR', 'Dot Net', 'C3A'],
+    ['Sandip Lakum', '2495365', '+91 76989 68097', 'TR', 'Dot Net', 'C3A'],
+    ['Pooja Singh', '2461315', '+91 91670 14597', 'TR', 'Dot Net', 'C3A'],
     ['Suranjan Dasgupta', '1120529', '+91 82768 48451', 'TR', 'Python', 'C3A'],
     ['Deepak Kumar', '2705406', '+91 79031 24549', 'TR', 'Python', 'C3A'],
     ['Viresh Kumar', '2764880', '+91 87911 21878', 'TR', 'Python', 'C3A'],
@@ -205,11 +249,58 @@ const buildSeedData = () => {
 }
 
 const seed = buildSeedData()
+const canonicalAssociateByPhoneRole = new Map(
+  seed.associates.map((person) => [`${toWhatsappNumber(person.phone)}|${person.role}`, person]),
+)
+
+const migrateTechnologies = (technologies = []) =>
+  technologies.map((tech) => (tech.name === '.NET' ? { ...tech, name: 'Dot Net' } : tech))
+
+const migrateAssociates = (associates = [], technologies = []) => {
+  const dotNetTech = technologies.find((tech) => tech.name === 'Dot Net')
+  const legacyDotNetTech = technologies.find((tech) => tech.name === '.NET')
+  const dotNetId = dotNetTech?.id || legacyDotNetTech?.id
+
+  return associates.map((person) => {
+    const key = `${toWhatsappNumber(person.phone)}|${person.role}`
+    const canonical = canonicalAssociateByPhoneRole.get(key)
+    const next = { ...person }
+
+    if (canonical) {
+      next.name = canonical.name
+      next.empId = canonical.empId
+    }
+
+    if (Array.isArray(next.technologyIds) && dotNetId) {
+      next.technologyIds = [...new Set(next.technologyIds.map((id) => (id === legacyDotNetTech?.id ? dotNetId : id)))]
+    }
+
+    return next
+  })
+}
+
+const migrateStoredData = (parsed) => {
+  const migratedTechnologies = migrateTechnologies(parsed.technologies || [])
+  const migratedAssociates = migrateAssociates(parsed.associates || [], migratedTechnologies)
+  return {
+    ...parsed,
+    version: STORAGE_VERSION,
+    technologies: migratedTechnologies.length ? migratedTechnologies : seed.technologies,
+    associates: migratedAssociates.length ? migratedAssociates : seed.associates,
+    recipients: parsed.recipients?.length ? parsed.recipients : seed.recipients,
+    gradeLevels: parsed.gradeLevels?.length ? parsed.gradeLevels : seed.gradeLevels,
+    myName: parsed.myName || seed.myName,
+  }
+}
+
 const getStoredData = () => {
   const raw = localStorage.getItem(STORAGE_KEY)
   if (!raw) return null
   try {
-    return JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    if ((parsed.version || 0) < STORAGE_VERSION) return migrateStoredData(parsed)
+    return parsed
   } catch {
     return null
   }
@@ -243,7 +334,10 @@ function App() {
   const [driveType, setDriveType] = useState('Virtual Drive')
   const [driveLocation, setDriveLocation] = useState('')
   const [recipient, setRecipient] = useState('Balaji')
-  const [requirementRows, setRequirementRows] = useState([defaultRequirementRow(seed.technologies[0]?.id || '')])
+  const [recipientInput, setRecipientInput] = useState('')
+  const [requirementRows, setRequirementRows] = useState([
+    defaultRequirementRow((storedData?.technologies || seed.technologies).find((tech) => tech.active)?.id || ''),
+  ])
   const [assignments, setAssignments] = useState([])
 
   const [associateForm, setAssociateForm] = useState(defaultAssociateForm)
@@ -275,20 +369,22 @@ function App() {
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ technologies, associates, history, recipients, gradeLevels, myName }),
+      JSON.stringify({ version: STORAGE_VERSION, technologies, associates, history, recipients, gradeLevels, myName }),
     )
   }, [technologies, associates, history, recipients, gradeLevels, myName])
 
   const addRecipient = () => {
-    const trimmed = recipient.trim()
+    const trimmed = recipientInput.trim()
     if (!trimmed) return
     if (!recipients.includes(trimmed)) setRecipients((prev) => [...prev, trimmed])
     setRecipient(trimmed)
+    setRecipientInput('')
   }
 
   const removeRecipient = (name) => {
-    setRecipients((prev) => prev.filter((item) => item !== name))
-    if (recipient === name) setRecipient('Balaji')
+    const nextRecipients = recipients.filter((item) => item !== name)
+    setRecipients(nextRecipients)
+    if (recipient === name) setRecipient(nextRecipients[0] || 'Balaji')
   }
 
   const generateAssignments = () => {
@@ -296,7 +392,14 @@ function App() {
       alert('Please select physical drive location.')
       return
     }
-    const rows = requirementRows.filter((row) => row.technologyId && Number(row.count) > 0)
+    const activeIds = new Set(activeTechnologies.map((tech) => tech.id))
+    const fallbackTechId = activeTechnologies[0]?.id || ''
+    const rows = requirementRows
+      .map((row) => ({
+        ...row,
+        technologyId: activeIds.has(row.technologyId) ? row.technologyId : fallbackTechId,
+      }))
+      .filter((row) => row.technologyId && Number(row.count) > 0)
     const next = rows
       .map((row) => {
         const baseTrPool = activeTRByTech[row.technologyId] || []
@@ -328,14 +431,17 @@ function App() {
           mrId: mrPool[0]?.id || '',
           trStatus: 'Pending',
           mrStatus: 'Pending',
-          trStart: '',
-          trEnd: '',
-          mrStart: '',
-          mrEnd: '',
+          trStart: '10:00',
+          trEnd: '12:00',
+          mrStart: '10:00',
+          mrEnd: '12:00',
           copiedAt: '',
         }
       })
       .filter(Boolean)
+    if (!next.length) {
+      alert('No eligible panelists found. Check active technology, location, and associate availability.')
+    }
     setAssignments(next)
   }
 
@@ -468,6 +574,83 @@ function App() {
     URL.revokeObjectURL(a.href)
   }
 
+  const exportAssociates = () => {
+    const payload = associates.map((person) => ({
+      ...person,
+      technologyNames: (person.technologyIds || [])
+        .map((id) => technologies.find((tech) => tech.id === id)?.name)
+        .filter(Boolean),
+    }))
+    const blob = new Blob([JSON.stringify({ associates: payload }, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `boa-associates-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  const importAssociatesAppend = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const text = await file.text()
+    try {
+      const parsed = JSON.parse(text)
+      const incoming = Array.isArray(parsed) ? parsed : parsed.associates
+      if (!Array.isArray(incoming)) {
+        throw new Error('Invalid associates file')
+      }
+
+      const existingKeys = new Set(
+        associates.map((person) =>
+          person.empId?.trim()
+            ? `emp:${person.empId.trim()}`
+            : `phone:${toWhatsappNumber(person.phone)}|role:${person.role}|name:${person.name.toLowerCase().trim()}`,
+        ),
+      )
+
+      const appended = []
+      for (const raw of incoming) {
+        const technologyNames = Array.isArray(raw.technologyNames)
+          ? raw.technologyNames
+          : (raw.technologyIds || [])
+              .map((id) => technologies.find((tech) => tech.id === id)?.name)
+              .filter(Boolean)
+        const techIds = technologyNames
+          .map((name) => technologies.find((tech) => tech.name.toLowerCase() === `${name}`.toLowerCase())?.id)
+          .filter(Boolean)
+
+        const normalized = {
+          id: createId(),
+          name: `${raw.name || ''}`.trim(),
+          phone: normalizePhone(`${raw.phone || ''}`),
+          role: raw.role || 'TR',
+          technologyIds: raw.role === 'MR' ? [] : techIds,
+          grade: raw.grade || (raw.role === 'MR' ? 'C3B' : 'C3A'),
+          empId: `${raw.empId || ''}`.trim(),
+          location: raw.location || '',
+          active: raw.active !== false,
+          notes: raw.notes || '',
+        }
+
+        if (!normalized.name || !normalized.phone) continue
+        const key = normalized.empId
+          ? `emp:${normalized.empId}`
+          : `phone:${toWhatsappNumber(normalized.phone)}|role:${normalized.role}|name:${normalized.name.toLowerCase().trim()}`
+        if (existingKeys.has(key)) continue
+        existingKeys.add(key)
+        appended.push(normalized)
+      }
+
+      if (appended.length) {
+        setAssociates((prev) => [...prev, ...appended])
+      }
+      alert(`Import complete. Added ${appended.length} new associate(s).`)
+    } catch {
+      alert('Invalid associates file')
+    }
+    event.target.value = ''
+  }
+
   const importData = async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -594,17 +777,21 @@ function App() {
             <div className="recipient-row">
               <label>
                 Greeting Name
-                <input
-                  list="recipient-list"
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  placeholder="Type name (e.g. Balaji)"
-                />
-                <datalist id="recipient-list">
+                <select value={recipients.includes(recipient) ? recipient : recipients[0] || ''} onChange={(e) => setRecipient(e.target.value)}>
                   {recipients.map((item) => (
-                    <option key={item} value={item} />
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
                   ))}
-                </datalist>
+                </select>
+              </label>
+              <label>
+                Add Greeting Name
+                <input
+                  value={recipientInput}
+                  onChange={(e) => setRecipientInput(e.target.value)}
+                  placeholder="Type and Save"
+                />
               </label>
               <button className="btn ghost" onClick={addRecipient}>
                 <FiSave /> Save Name
@@ -627,13 +814,14 @@ function App() {
               {requirementRows.map((row) => (
                 <div key={row.id} className="requirement-row">
                   <select
-                    value={row.technologyId}
+                    value={activeTechnologies.some((tech) => tech.id === row.technologyId) ? row.technologyId : ''}
                     onChange={(e) =>
                       setRequirementRows((prev) =>
                         prev.map((item) => (item.id === row.id ? { ...item, technologyId: e.target.value } : item)),
                       )
                     }
                   >
+                    <option value="">Select Technology</option>
                     {activeTechnologies.map((tech) => (
                       <option key={tech.id} value={tech.id}>
                         {tech.name}
@@ -700,6 +888,22 @@ function App() {
                         <a className="icon-link" href={`tel:${tr.phone}`} aria-label="Call TR">
                           <FiPhone />
                         </a>
+                        <a
+                          className="icon-link whatsapp"
+                          href={getWhatsappChatUrl(tr.phone)}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="WhatsApp TR Chat"
+                        >
+                          <FaWhatsapp />
+                        </a>
+                        <a
+                          className="icon-link whatsapp"
+                          href={getWhatsappCallUrl(tr.phone)}
+                          aria-label="WhatsApp TR Call"
+                        >
+                          <FiPhone />
+                        </a>
                         <select value={assignment.trStatus} onChange={(e) => updateAssignment(assignment.id, { trStatus: e.target.value })}>
                           {STATUS_OPTIONS.map((option) => (
                             <option key={option} value={option}>
@@ -707,52 +911,56 @@ function App() {
                             </option>
                           ))}
                         </select>
-                        {assignment.trStatus === 'Force Assign' ? (
-                          <a
-                            className="icon-link whatsapp"
-                            href={`https://wa.me/${toWhatsappNumber(tr.phone)}?text=${encodeURIComponent(
-                              buildForceAssignMessage({
-                                associateName: tr.name,
-                                myName: myName || 'Niladri Ghoshal',
-                                date: selectedDate,
-                                driveType,
-                                location: driveLocation,
-                                technologyName: tech.name,
-                                role: 'TR',
-                                start: assignment.trStart,
-                                end: assignment.trEnd,
-                              }),
-                            )}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            aria-label="WhatsApp TR Force Assign"
-                          >
-                            <FaWhatsapp />
-                          </a>
-                        ) : (
-                          <span className="icon-link disabled" title="Set status to Force Assign to enable message">
-                            <FaWhatsapp />
-                          </span>
-                        )}
+                        <a
+                          className={`icon-link whatsapp force-msg-btn ${assignment.trStatus === 'Force Assign' ? '' : 'disabled'}`}
+                          href={getWhatsappChatUrl(
+                            tr.phone,
+                            buildForceAssignMessage({
+                              associateName: tr.name,
+                              myName: myName || 'Niladri Ghoshal',
+                              date: selectedDate,
+                              driveType,
+                              location: driveLocation,
+                              technologyName: tech.name,
+                              role: 'TR',
+                              start: normalizeTimeSlot(assignment.trStart),
+                              end: normalizeTimeSlot(assignment.trEnd, addTwoHours(normalizeTimeSlot(assignment.trStart))),
+                            }),
+                          )}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="WhatsApp TR Prefilled Message"
+                          title="Set status to Force Assign to enable prefilled message"
+                        >
+                          <FiCopy />
+                        </a>
                       </div>
                       <div className="time-grid">
                         <label>
                           Start
-                          <input
-                            type="time"
-                            step="1800"
+                          <TimeSlotPicker
                             value={assignment.trStart}
-                            onChange={(e) =>
+                            onChange={(nextStart) =>
                               updateAssignment(assignment.id, {
-                                trStart: e.target.value,
-                                trEnd: assignment.trEnd || addTwoHours(e.target.value),
+                                trStart: normalizeTimeSlot(nextStart),
+                                trEnd: normalizeTimeSlot(
+                                  assignment.trEnd,
+                                  addTwoHours(normalizeTimeSlot(nextStart)),
+                                ),
                               })
                             }
                           />
                         </label>
                         <label>
                           End
-                          <input type="time" step="1800" value={assignment.trEnd} onChange={(e) => updateAssignment(assignment.id, { trEnd: e.target.value })} />
+                          <TimeSlotPicker
+                            value={assignment.trEnd}
+                            onChange={(nextEnd) =>
+                              updateAssignment(assignment.id, {
+                                trEnd: normalizeTimeSlot(nextEnd, assignment.trEnd),
+                              })
+                            }
+                          />
                         </label>
                       </div>
                     </div>
@@ -777,6 +985,22 @@ function App() {
                         <a className="icon-link" href={`tel:${mr.phone}`} aria-label="Call MR">
                           <FiPhone />
                         </a>
+                        <a
+                          className="icon-link whatsapp"
+                          href={getWhatsappChatUrl(mr.phone)}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="WhatsApp MR Chat"
+                        >
+                          <FaWhatsapp />
+                        </a>
+                        <a
+                          className="icon-link whatsapp"
+                          href={getWhatsappCallUrl(mr.phone)}
+                          aria-label="WhatsApp MR Call"
+                        >
+                          <FiPhone />
+                        </a>
                         <select value={assignment.mrStatus} onChange={(e) => updateAssignment(assignment.id, { mrStatus: e.target.value })}>
                           {STATUS_OPTIONS.map((option) => (
                             <option key={option} value={option}>
@@ -784,52 +1008,56 @@ function App() {
                             </option>
                           ))}
                         </select>
-                        {assignment.mrStatus === 'Force Assign' ? (
-                          <a
-                            className="icon-link whatsapp"
-                            href={`https://wa.me/${toWhatsappNumber(mr.phone)}?text=${encodeURIComponent(
-                              buildForceAssignMessage({
-                                associateName: mr.name,
-                                myName: myName || 'Niladri Ghoshal',
-                                date: selectedDate,
-                                driveType,
-                                location: driveLocation,
-                                technologyName: tech.name,
-                                role: 'MR',
-                                start: assignment.mrStart,
-                                end: assignment.mrEnd,
-                              }),
-                            )}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            aria-label="WhatsApp MR Force Assign"
-                          >
-                            <FaWhatsapp />
-                          </a>
-                        ) : (
-                          <span className="icon-link disabled" title="Set status to Force Assign to enable message">
-                            <FaWhatsapp />
-                          </span>
-                        )}
+                        <a
+                          className={`icon-link whatsapp force-msg-btn ${assignment.mrStatus === 'Force Assign' ? '' : 'disabled'}`}
+                          href={getWhatsappChatUrl(
+                            mr.phone,
+                            buildForceAssignMessage({
+                              associateName: mr.name,
+                              myName: myName || 'Niladri Ghoshal',
+                              date: selectedDate,
+                              driveType,
+                              location: driveLocation,
+                              technologyName: tech.name,
+                              role: 'MR',
+                              start: normalizeTimeSlot(assignment.mrStart),
+                              end: normalizeTimeSlot(assignment.mrEnd, addTwoHours(normalizeTimeSlot(assignment.mrStart))),
+                            }),
+                          )}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="WhatsApp MR Prefilled Message"
+                          title="Set status to Force Assign to enable prefilled message"
+                        >
+                          <FiCopy />
+                        </a>
                       </div>
                       <div className="time-grid">
                         <label>
                           Start
-                          <input
-                            type="time"
-                            step="1800"
+                          <TimeSlotPicker
                             value={assignment.mrStart}
-                            onChange={(e) =>
+                            onChange={(nextStart) =>
                               updateAssignment(assignment.id, {
-                                mrStart: e.target.value,
-                                mrEnd: assignment.mrEnd || addTwoHours(e.target.value),
+                                mrStart: normalizeTimeSlot(nextStart),
+                                mrEnd: normalizeTimeSlot(
+                                  assignment.mrEnd,
+                                  addTwoHours(normalizeTimeSlot(nextStart)),
+                                ),
                               })
                             }
                           />
                         </label>
                         <label>
                           End
-                          <input type="time" step="1800" value={assignment.mrEnd} onChange={(e) => updateAssignment(assignment.id, { mrEnd: e.target.value })} />
+                          <TimeSlotPicker
+                            value={assignment.mrEnd}
+                            onChange={(nextEnd) =>
+                              updateAssignment(assignment.id, {
+                                mrEnd: normalizeTimeSlot(nextEnd, assignment.mrEnd),
+                              })
+                            }
+                          />
                         </label>
                       </div>
                     </div>
@@ -848,6 +1076,15 @@ function App() {
           <section className="panel">
             <div className="section-title">
               <h2>Associates</h2>
+              <div className="actions-row">
+                <button className="btn ghost" type="button" onClick={exportAssociates}>
+                  <FiDownload /> Export Associates
+                </button>
+                <label className="btn ghost file-upload">
+                  <FiUpload /> Import Associates
+                  <input type="file" accept="application/json" onChange={importAssociatesAppend} />
+                </label>
+              </div>
             </div>
 
             <form className="stack" onSubmit={submitAssociate}>
@@ -1155,6 +1392,13 @@ function App() {
                 <FiUpload /> Import Backup
                 <input type="file" accept="application/json" onChange={importData} />
               </label>
+            </div>
+
+            <div className="creator-credit">
+              <p>Created and maintained by Niladri Ghoshal.</p>
+              <a href="https://github.com/niladrighoshal" target="_blank" rel="noreferrer">
+                <FaGithub /> github.com/niladrighoshal
+              </a>
             </div>
           </section>
         )}
