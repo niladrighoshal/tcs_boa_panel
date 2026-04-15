@@ -1,0 +1,982 @@
+
+import { useEffect, useMemo, useState } from 'react'
+import {
+  FiArchive,
+  FiCalendar,
+  FiCheck,
+  FiClock,
+  FiCopy,
+  FiDownload,
+  FiEdit2,
+  FiFilter,
+  FiMenu,
+  FiPhone,
+  FiPlus,
+  FiSave,
+  FiSettings,
+  FiShare2,
+  FiTrash2,
+  FiUpload,
+  FiUsers,
+  FiX,
+} from 'react-icons/fi'
+import { FaWhatsapp } from 'react-icons/fa'
+
+const STORAGE_KEY = 'boa_panel_manager_v1'
+const STATUS_OPTIONS = ['Pending', 'Available', 'Not Available', 'No Response', 'Call Back Later']
+const DRIVE_TYPES = ['Virtual Drive', 'Physical Drive']
+
+const createId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+const normalizePhone = (phone) => phone.replace(/\s+/g, ' ').trim()
+const toWhatsappNumber = (phone) => phone.replace(/[^\d]/g, '')
+
+const formatDisplayDate = (isoDate) => {
+  if (!isoDate) return ''
+  const date = new Date(`${isoDate}T00:00:00`)
+  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+const fmtTime = (value) => {
+  if (!value) return ''
+  const [h, m] = value.split(':').map(Number)
+  const date = new Date()
+  date.setHours(h, m, 0, 0)
+  return date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })
+}
+
+const addTwoHours = (value) => {
+  if (!value) return ''
+  const [h, m] = value.split(':').map(Number)
+  const date = new Date()
+  date.setHours(h, m, 0, 0)
+  date.setHours(date.getHours() + 2)
+  return `${`${date.getHours()}`.padStart(2, '0')}:${`${date.getMinutes()}`.padStart(2, '0')}`
+}
+
+const sortByRecommendation = (pool, history, role, technologyId, selectedDate) => {
+  const target = new Date(`${selectedDate}T00:00:00`)
+  const yesterday = new Date(target)
+  yesterday.setDate(target.getDate() - 1)
+  const yesterdayKey = yesterday.toISOString().slice(0, 10)
+
+  return [...pool].sort((a, b) => {
+    const aEntries = history.filter((item) =>
+      role === 'TR' ? item.trId === a.id && item.technologyId === technologyId : item.mrId === a.id,
+    )
+    const bEntries = history.filter((item) =>
+      role === 'TR' ? item.trId === b.id && item.technologyId === technologyId : item.mrId === b.id,
+    )
+    const aLast = aEntries.length ? aEntries[aEntries.length - 1].date : ''
+    const bLast = bEntries.length ? bEntries[bEntries.length - 1].date : ''
+    const aWasYesterday = aLast === yesterdayKey
+    const bWasYesterday = bLast === yesterdayKey
+
+    if (aWasYesterday !== bWasYesterday) return aWasYesterday ? 1 : -1
+    if (!aLast && bLast) return -1
+    if (aLast && !bLast) return 1
+    if (aLast !== bLast) return aLast < bLast ? -1 : 1
+    if (aEntries.length !== bEntries.length) return aEntries.length - bEntries.length
+    return a.name.localeCompare(b.name)
+  })
+}
+
+const buildMessage = ({ recipient, date, driveType, technologyName, count, tr, mr, trStart, trEnd, mrStart, mrEnd }) =>
+  `Hi ${recipient},
+
+Please find ${formatDisplayDate(date)} panellists' details from Mohana's team.
+Date: ${formatDisplayDate(date)}
+Drive Type: ${driveType}
+Skill: ${technologyName}
+Interview Count: ${count}
+TR EMP: ${tr.empId || 'TBD'}
+TR Name: ${tr.name}
+TR Contact: ${tr.phone}
+TR Grade: ${tr.grade}
+TR Timings: ${fmtTime(trStart)} - ${fmtTime(trEnd)}
+MR EMP: ${mr.empId || 'TBD'}
+MR Name: ${mr.name}
+MR Contact: ${mr.phone}
+MR Grade: ${mr.grade}
+MR Timings: ${fmtTime(mrStart)} - ${fmtTime(mrEnd)}`
+
+const defaultTechnologies = ['Java', '.NET', 'Python', 'Automation Testing', 'PLSQL', 'Informatica'].map((name) => ({
+  id: createId(),
+  name,
+  active: true,
+}))
+
+const getTechId = (techList, name) => techList.find((tech) => tech.name === name)?.id
+
+const buildSeedData = () => {
+  const technologies = defaultTechnologies
+  const associates = [
+    ['Abhishek Jain', '+91 73871 81767', 'TR', 'Java', 'C3A'],
+    ['Sravani Miriyalla', '+91 98925 05762', 'TR', 'Java', 'C3A'],
+    ['Rakesh Kunduru', '+91 94949 94854', 'TR', 'Java', 'C3A'],
+    ['Aarthy Murugesan', '+91 93617 87050', 'TR', 'Java', 'C3A'],
+    ['Chinmayi', '+91 81060 19440', 'TR', '.NET', 'C3A'],
+    ['Sandip Lukam', '+91 76989 68097', 'TR', '.NET', 'C3A'],
+    ['Pooja', '+91 91670 14597', 'TR', '.NET', 'C3A'],
+    ['Suranjan', '+91 82768 48451', 'TR', 'Python', 'C3A'],
+    ['Deepak Kumar', '+91 79031 24549', 'TR', 'Python', 'C3A'],
+    ['Viresh Gupta', '+91 87911 21878', 'TR', 'Python', 'C3A'],
+    ['Ramyalaxshi', '+91 86005 60133', 'TR', 'Python', 'C3A'],
+    ['Vishal', '+91 95759 96699', 'TR', 'Automation Testing', 'C3A'],
+    ['Karthik', '+91 93454 41214', 'TR', 'Automation Testing', 'C3A'],
+    ['Kamlakar Naik', '+91 97407 53299', 'TR', 'Automation Testing', 'C3A'],
+    ['Sudip', '+91 89622 99916', 'TR', 'PLSQL', 'C3A'],
+    ['Nikitha Kattuboina', '+91 95502 97320', 'TR', 'PLSQL', 'C3A'],
+    ['Suman', '+91 824 941 7044', 'TR', 'PLSQL', 'C3A'],
+    ['Jay Shan', '+91 96322 44667', 'TR', 'PLSQL', 'C3A'],
+    ['Vignesh', '+91 99411 69750', 'TR', 'Informatica', 'C3A'],
+    ['Mukesh', '+91 91234 17283', 'TR', 'Informatica', 'C3A'],
+    ['Atul', '+91 70305 16655', 'MR', '', 'C3B'],
+    ['Jaychandar', '+91 70936 93774', 'MR', '', 'C3B'],
+    ['Uma', '+91 97109 12000', 'MR', '', 'C3B'],
+    ['Mukesh', '+91 91234 17283', 'MR', '', 'C3B'],
+    ['Ajay Kumar B', '+91 97901 81008', 'MR', '', 'C3B'],
+    ['Suman', '+91 824 941 7044', 'MR', '', 'C3B'],
+  ].map(([name, phone, role, techName, grade]) => ({
+    id: createId(),
+    name,
+    phone: normalizePhone(phone),
+    role,
+    technologyIds: techName ? [getTechId(technologies, techName)] : [],
+    grade,
+    empId: '',
+    active: true,
+    notes: '',
+  }))
+
+  return {
+    technologies,
+    associates,
+    history: [],
+    recipients: ['Balaji', 'Mohana'],
+    gradeLevels: ['C3A', 'C3B', 'C3C', 'C4', 'C5'],
+  }
+}
+
+const seed = buildSeedData()
+const getStoredData = () => {
+  const raw = localStorage.getItem(STORAGE_KEY)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+const defaultAssociateForm = {
+  name: '',
+  phone: '',
+  role: 'TR',
+  technologyIds: [],
+  grade: 'C3A',
+  empId: '',
+  notes: '',
+  active: true,
+}
+const defaultRequirementRow = (technologyId = '') => ({ id: createId(), technologyId, count: 1 })
+
+function App() {
+  const storedData = getStoredData()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState('dashboard')
+
+  const [technologies, setTechnologies] = useState(storedData?.technologies || seed.technologies)
+  const [associates, setAssociates] = useState(storedData?.associates || seed.associates)
+  const [history, setHistory] = useState(storedData?.history || seed.history)
+  const [recipients, setRecipients] = useState(storedData?.recipients || seed.recipients)
+  const [gradeLevels, setGradeLevels] = useState(storedData?.gradeLevels || seed.gradeLevels)
+
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10))
+  const [driveType, setDriveType] = useState('Virtual Drive')
+  const [recipient, setRecipient] = useState('Mohana')
+  const [requirementRows, setRequirementRows] = useState([defaultRequirementRow(seed.technologies[0]?.id || '')])
+  const [assignments, setAssignments] = useState([])
+
+  const [associateForm, setAssociateForm] = useState(defaultAssociateForm)
+  const [editingAssociateId, setEditingAssociateId] = useState('')
+  const [techInput, setTechInput] = useState('')
+  const [historyFilters, setHistoryFilters] = useState({ date: '', driveType: 'All', technologyId: 'All' })
+  const [gradeInput, setGradeInput] = useState((storedData?.gradeLevels || seed.gradeLevels).join(', '))
+
+  const activeTechnologies = useMemo(() => technologies.filter((item) => item.active), [technologies])
+  const activeTRByTech = useMemo(() => {
+    const map = {}
+    for (const tech of activeTechnologies) {
+      map[tech.id] = associates.filter(
+        (person) =>
+          person.active &&
+          (person.role === 'TR' || person.role === 'BOTH') &&
+          person.technologyIds.includes(tech.id),
+      )
+    }
+    return map
+  }, [associates, activeTechnologies])
+  const activeMR = useMemo(
+    () => associates.filter((person) => person.active && (person.role === 'MR' || person.role === 'BOTH')),
+    [associates],
+  )
+
+  useEffect(() => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ technologies, associates, history, recipients, gradeLevels }),
+    )
+  }, [technologies, associates, history, recipients, gradeLevels])
+
+  const addRecipient = () => {
+    const trimmed = recipient.trim()
+    if (!trimmed) return
+    if (!recipients.includes(trimmed)) setRecipients((prev) => [...prev, trimmed])
+    setRecipient(trimmed)
+  }
+
+  const removeRecipient = (name) => {
+    setRecipients((prev) => prev.filter((item) => item !== name))
+    if (recipient === name) setRecipient('Mohana')
+  }
+
+  const generateAssignments = () => {
+    const rows = requirementRows.filter((row) => row.technologyId && Number(row.count) > 0)
+    const next = rows
+      .map((row) => {
+        const trPool = sortByRecommendation(
+          activeTRByTech[row.technologyId] || [],
+          history,
+          'TR',
+          row.technologyId,
+          selectedDate,
+        )
+        const mrPool = sortByRecommendation(activeMR, history, 'MR', row.technologyId, selectedDate)
+        if (!trPool.length || !mrPool.length) return null
+        return {
+          id: createId(),
+          technologyId: row.technologyId,
+          count: Number(row.count),
+          trChoices: trPool.map((p) => p.id),
+          mrChoices: mrPool.map((p) => p.id),
+          trId: trPool[0]?.id || '',
+          mrId: mrPool[0]?.id || '',
+          trStatus: 'Pending',
+          mrStatus: 'Pending',
+          trStart: '',
+          trEnd: '',
+          mrStart: '',
+          mrEnd: '',
+          copiedAt: '',
+        }
+      })
+      .filter(Boolean)
+    setAssignments(next)
+  }
+
+  const updateAssignment = (id, updates) => {
+    setAssignments((prev) => prev.map((item) => (item.id === id ? { ...item, ...updates } : item)))
+  }
+
+  const saveAssignment = async (assignment) => {
+    const tech = technologies.find((item) => item.id === assignment.technologyId)
+    const tr = associates.find((item) => item.id === assignment.trId)
+    const mr = associates.find((item) => item.id === assignment.mrId)
+    if (!tech || !tr || !mr) return
+    if (!assignment.trStart || !assignment.trEnd || !assignment.mrStart || !assignment.mrEnd) {
+      alert('Please set both TR and MR timings before saving.')
+      return
+    }
+
+    const message = buildMessage({
+      recipient: recipient || 'Mohana',
+      date: selectedDate,
+      driveType,
+      technologyName: tech.name.toUpperCase(),
+      count: assignment.count,
+      tr,
+      mr,
+      trStart: assignment.trStart,
+      trEnd: assignment.trEnd,
+      mrStart: assignment.mrStart,
+      mrEnd: assignment.mrEnd,
+    })
+
+    try {
+      await navigator.clipboard.writeText(message)
+    } catch {
+      // ignored
+    }
+
+    const record = {
+      id: createId(),
+      date: selectedDate,
+      driveType,
+      technologyId: tech.id,
+      technologyName: tech.name,
+      count: assignment.count,
+      trId: tr.id,
+      trName: tr.name,
+      trPhone: tr.phone,
+      trGrade: tr.grade,
+      trEmpId: tr.empId,
+      trStart: assignment.trStart,
+      trEnd: assignment.trEnd,
+      trStatus: assignment.trStatus,
+      mrId: mr.id,
+      mrName: mr.name,
+      mrPhone: mr.phone,
+      mrGrade: mr.grade,
+      mrEmpId: mr.empId,
+      mrStart: assignment.mrStart,
+      mrEnd: assignment.mrEnd,
+      mrStatus: assignment.mrStatus,
+      recipient: recipient || 'Mohana',
+      message,
+      createdAt: new Date().toISOString(),
+    }
+
+    setHistory((prev) => [...prev, record])
+    updateAssignment(assignment.id, { copiedAt: new Date().toISOString() })
+  }
+
+  const submitAssociate = (event) => {
+    event.preventDefault()
+    if (!associateForm.name.trim() || !associateForm.phone.trim()) return
+
+    const payload = {
+      ...associateForm,
+      name: associateForm.name.trim(),
+      phone: normalizePhone(associateForm.phone),
+      empId: associateForm.empId.trim(),
+      notes: associateForm.notes.trim(),
+      technologyIds:
+        associateForm.role === 'MR'
+          ? []
+          : associateForm.technologyIds.filter((id) => technologies.some((tech) => tech.id === id)),
+    }
+
+    if (editingAssociateId) {
+      setAssociates((prev) => prev.map((item) => (item.id === editingAssociateId ? { ...item, ...payload } : item)))
+    } else {
+      setAssociates((prev) => [...prev, { ...payload, id: createId() }])
+    }
+    setAssociateForm(defaultAssociateForm)
+    setEditingAssociateId('')
+  }
+
+  const editAssociate = (item) => {
+    setAssociateForm({
+      name: item.name,
+      phone: item.phone,
+      role: item.role,
+      technologyIds: item.technologyIds || [],
+      grade: item.grade,
+      empId: item.empId || '',
+      notes: item.notes || '',
+      active: item.active,
+    })
+    setEditingAssociateId(item.id)
+    setActiveTab('associates')
+  }
+
+  const saveGrades = () => {
+    const next = gradeInput
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    if (next.length) setGradeLevels(next)
+  }
+
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify({ technologies, associates, history, recipients, gradeLevels }, null, 2)], {
+      type: 'application/json',
+    })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `boa-panel-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  const importData = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const text = await file.text()
+    try {
+      const parsed = JSON.parse(text)
+      if (parsed.technologies) setTechnologies(parsed.technologies)
+      if (parsed.associates) setAssociates(parsed.associates)
+      if (parsed.history) setHistory(parsed.history)
+      if (parsed.recipients) setRecipients(parsed.recipients)
+      if (parsed.gradeLevels) {
+        setGradeLevels(parsed.gradeLevels)
+        setGradeInput(parsed.gradeLevels.join(', '))
+      }
+      setAssignments([])
+    } catch {
+      alert('Invalid backup file')
+    }
+    event.target.value = ''
+  }
+
+  const filteredHistory = useMemo(
+    () =>
+      history.filter((item) => {
+        if (historyFilters.date && item.date !== historyFilters.date) return false
+        if (historyFilters.driveType !== 'All' && item.driveType !== historyFilters.driveType) return false
+        if (historyFilters.technologyId !== 'All' && item.technologyId !== historyFilters.technologyId) return false
+        return true
+      }),
+    [history, historyFilters],
+  )
+
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: <FiCalendar /> },
+    { id: 'associates', label: 'Associates', icon: <FiUsers /> },
+    { id: 'technologies', label: 'Technologies', icon: <FiArchive /> },
+    { id: 'history', label: 'History', icon: <FiClock /> },
+    { id: 'settings', label: 'Settings', icon: <FiSettings /> },
+  ]
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <button className="icon-btn" onClick={() => setMenuOpen(true)} aria-label="Open menu">
+          <FiMenu />
+        </button>
+        <div>
+          <h1>BOA Panel Navigator</h1>
+          <p>Daily TR/MR scheduling with smart rest rotation</p>
+        </div>
+      </header>
+
+      {menuOpen ? <div className="backdrop" onClick={() => setMenuOpen(false)} /> : null}
+      <aside className={`side-menu ${menuOpen ? 'open' : ''}`}>
+        <div className="menu-head">
+          <strong>Sections</strong>
+          <button className="icon-btn" onClick={() => setMenuOpen(false)} aria-label="Close menu">
+            <FiX />
+          </button>
+        </div>
+        {navItems.map((item) => (
+          <button
+            key={item.id}
+            className={`menu-item ${activeTab === item.id ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab(item.id)
+              setMenuOpen(false)
+            }}
+          >
+            {item.icon}
+            {item.label}
+          </button>
+        ))}
+      </aside>
+
+      <main className="content">
+        {activeTab === 'dashboard' && (
+          <section className="panel">
+            <div className="section-title">
+              <h2>Drive Request</h2>
+            </div>
+            <div className="grid two">
+              <label>
+                Date
+                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+              </label>
+              <label>
+                Drive Type
+                <select value={driveType} onChange={(e) => setDriveType(e.target.value)}>
+                  {DRIVE_TYPES.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="recipient-row">
+              <label>
+                Greeting Name
+                <input
+                  list="recipient-list"
+                  value={recipient}
+                  onChange={(e) => setRecipient(e.target.value)}
+                  placeholder="Type name (e.g. Balaji)"
+                />
+                <datalist id="recipient-list">
+                  {recipients.map((item) => (
+                    <option key={item} value={item} />
+                  ))}
+                </datalist>
+              </label>
+              <button className="btn ghost" onClick={addRecipient}>
+                <FiSave /> Save Name
+              </button>
+            </div>
+
+            <div className="section-title compact">
+              <h3>Technology-Wise Count</h3>
+              <button
+                className="btn ghost"
+                onClick={() =>
+                  setRequirementRows((prev) => [...prev, defaultRequirementRow(activeTechnologies[0]?.id || '')])
+                }
+              >
+                <FiPlus /> Add Row
+              </button>
+            </div>
+
+            <div className="stack">
+              {requirementRows.map((row) => (
+                <div key={row.id} className="requirement-row">
+                  <select
+                    value={row.technologyId}
+                    onChange={(e) =>
+                      setRequirementRows((prev) =>
+                        prev.map((item) => (item.id === row.id ? { ...item, technologyId: e.target.value } : item)),
+                      )
+                    }
+                  >
+                    {activeTechnologies.map((tech) => (
+                      <option key={tech.id} value={tech.id}>
+                        {tech.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    value={row.count}
+                    onChange={(e) =>
+                      setRequirementRows((prev) =>
+                        prev.map((item) => (item.id === row.id ? { ...item, count: Number(e.target.value || 0) } : item)),
+                      )
+                    }
+                  />
+                  <button
+                    className="icon-btn danger"
+                    onClick={() => setRequirementRows((prev) => prev.filter((item) => item.id !== row.id))}
+                  >
+                    <FiTrash2 />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button className="btn primary" onClick={generateAssignments}>
+              <FiShare2 /> Suggest Panelists
+            </button>
+
+            <div className="stack assignments">
+              {assignments.map((assignment) => {
+                const tech = technologies.find((item) => item.id === assignment.technologyId)
+                const tr = associates.find((item) => item.id === assignment.trId)
+                const mr = associates.find((item) => item.id === assignment.mrId)
+                if (!tech || !tr || !mr) return null
+
+                return (
+                  <article className="assignment-card" key={assignment.id}>
+                    <div className="section-title compact">
+                      <h3>
+                        {tech.name} ({assignment.count})
+                      </h3>
+                      {assignment.copiedAt ? <span className="badge">Saved</span> : <span className="badge muted">Draft</span>}
+                    </div>
+
+                    <div className="person-card">
+                      <div className="row-head">
+                        <strong>TR Panelist</strong>
+                        <select value={assignment.trId} onChange={(e) => updateAssignment(assignment.id, { trId: e.target.value })}>
+                          {assignment.trChoices.map((id) => {
+                            const person = associates.find((item) => item.id === id)
+                            if (!person) return null
+                            return (
+                              <option key={id} value={id}>
+                                {person.name} - {tech.name} TR
+                              </option>
+                            )
+                          })}
+                        </select>
+                      </div>
+                      <p>{tr.phone}</p>
+                      <div className="actions-row">
+                        <a className="icon-link" href={`tel:${tr.phone}`} aria-label="Call TR">
+                          <FiPhone />
+                        </a>
+                        <a
+                          className="icon-link whatsapp"
+                          href={`https://wa.me/${toWhatsappNumber(tr.phone)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="WhatsApp TR"
+                        >
+                          <FaWhatsapp />
+                        </a>
+                        <select value={assignment.trStatus} onChange={(e) => updateAssignment(assignment.id, { trStatus: e.target.value })}>
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="time-grid">
+                        <label>
+                          Start
+                          <input
+                            type="time"
+                            value={assignment.trStart}
+                            onChange={(e) =>
+                              updateAssignment(assignment.id, {
+                                trStart: e.target.value,
+                                trEnd: assignment.trEnd || addTwoHours(e.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          End
+                          <input type="time" value={assignment.trEnd} onChange={(e) => updateAssignment(assignment.id, { trEnd: e.target.value })} />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="person-card">
+                      <div className="row-head">
+                        <strong>MR Panelist</strong>
+                        <select value={assignment.mrId} onChange={(e) => updateAssignment(assignment.id, { mrId: e.target.value })}>
+                          {assignment.mrChoices.map((id) => {
+                            const person = associates.find((item) => item.id === id)
+                            if (!person) return null
+                            return (
+                              <option key={id} value={id}>
+                                {person.name} - MR
+                              </option>
+                            )
+                          })}
+                        </select>
+                      </div>
+                      <p>{mr.phone}</p>
+                      <div className="actions-row">
+                        <a className="icon-link" href={`tel:${mr.phone}`} aria-label="Call MR">
+                          <FiPhone />
+                        </a>
+                        <a
+                          className="icon-link whatsapp"
+                          href={`https://wa.me/${toWhatsappNumber(mr.phone)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="WhatsApp MR"
+                        >
+                          <FaWhatsapp />
+                        </a>
+                        <select value={assignment.mrStatus} onChange={(e) => updateAssignment(assignment.id, { mrStatus: e.target.value })}>
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="time-grid">
+                        <label>
+                          Start
+                          <input
+                            type="time"
+                            value={assignment.mrStart}
+                            onChange={(e) =>
+                              updateAssignment(assignment.id, {
+                                mrStart: e.target.value,
+                                mrEnd: assignment.mrEnd || addTwoHours(e.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          End
+                          <input type="time" value={assignment.mrEnd} onChange={(e) => updateAssignment(assignment.id, { mrEnd: e.target.value })} />
+                        </label>
+                      </div>
+                    </div>
+
+                    <button className="btn primary" onClick={() => saveAssignment(assignment)}>
+                      <FiCopy /> Copy Message + Save History
+                    </button>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'associates' && (
+          <section className="panel">
+            <div className="section-title">
+              <h2>Associates</h2>
+            </div>
+
+            <form className="stack" onSubmit={submitAssociate}>
+              <div className="grid two">
+                <label>
+                  Name
+                  <input value={associateForm.name} onChange={(e) => setAssociateForm((prev) => ({ ...prev, name: e.target.value }))} required />
+                </label>
+                <label>
+                  Phone
+                  <input value={associateForm.phone} onChange={(e) => setAssociateForm((prev) => ({ ...prev, phone: e.target.value }))} required />
+                </label>
+              </div>
+
+              <div className="grid two">
+                <label>
+                  Role
+                  <select
+                    value={associateForm.role}
+                    onChange={(e) =>
+                      setAssociateForm((prev) => ({ ...prev, role: e.target.value, grade: e.target.value === 'MR' ? 'C3B' : prev.grade }))
+                    }
+                  >
+                    <option value="TR">TR</option>
+                    <option value="MR">MR</option>
+                    <option value="BOTH">Both</option>
+                  </select>
+                </label>
+                <label>
+                  Grade
+                  <select value={associateForm.grade} onChange={(e) => setAssociateForm((prev) => ({ ...prev, grade: e.target.value }))}>
+                    {gradeLevels.map((grade) => (
+                      <option key={grade} value={grade}>
+                        {grade}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {(associateForm.role === 'TR' || associateForm.role === 'BOTH') && (
+                <label>
+                  Technologies (TR)
+                  <div className="chip-wrap">
+                    {activeTechnologies.map((tech) => (
+                      <button
+                        key={tech.id}
+                        type="button"
+                        className={`chip ${associateForm.technologyIds.includes(tech.id) ? 'active' : ''}`}
+                        onClick={() =>
+                          setAssociateForm((prev) => ({
+                            ...prev,
+                            technologyIds: prev.technologyIds.includes(tech.id)
+                              ? prev.technologyIds.filter((id) => id !== tech.id)
+                              : [...prev.technologyIds, tech.id],
+                          }))
+                        }
+                      >
+                        {tech.name}
+                      </button>
+                    ))}
+                  </div>
+                </label>
+              )}
+
+              <div className="grid two">
+                <label>
+                  Employee ID
+                  <input value={associateForm.empId} onChange={(e) => setAssociateForm((prev) => ({ ...prev, empId: e.target.value }))} placeholder="Add later" />
+                </label>
+                <label>
+                  Notes
+                  <input value={associateForm.notes} onChange={(e) => setAssociateForm((prev) => ({ ...prev, notes: e.target.value }))} />
+                </label>
+              </div>
+
+              <div className="actions-row">
+                <button className="btn primary" type="submit">
+                  <FiSave /> {editingAssociateId ? 'Update Associate' : 'Add Associate'}
+                </button>
+                {editingAssociateId && (
+                  <button className="btn ghost" type="button" onClick={() => { setAssociateForm(defaultAssociateForm); setEditingAssociateId('') }}>
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
+            </form>
+
+            <div className="stack">
+              {associates.map((person) => {
+                const techNames = person.technologyIds
+                  .map((id) => technologies.find((tech) => tech.id === id)?.name)
+                  .filter(Boolean)
+                  .join(', ')
+                return (
+                  <article className="list-card" key={person.id}>
+                    <div>
+                      <strong>{person.name}</strong>
+                      <p>
+                        {person.role}
+                        {techNames ? ` | ${techNames}` : ''}
+                      </p>
+                      <p>
+                        {person.phone} | {person.grade} | {person.empId || 'Emp ID pending'}
+                      </p>
+                    </div>
+                    <div className="actions-row">
+                      <button className="icon-btn" onClick={() => editAssociate(person)}>
+                        <FiEdit2 />
+                      </button>
+                      <button className="icon-btn" onClick={() => setAssociates((prev) => prev.map((item) => (item.id === person.id ? { ...item, active: !item.active } : item)))}>
+                        {person.active ? <FiX /> : <FiCheck />}
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'technologies' && (
+          <section className="panel">
+            <div className="section-title">
+              <h2>Technologies</h2>
+            </div>
+            <div className="recipient-row">
+              <input placeholder="Add new technology" value={techInput} onChange={(e) => setTechInput(e.target.value)} />
+              <button
+                className="btn primary"
+                onClick={() => {
+                  const name = techInput.trim()
+                  if (!name) return
+                  if (technologies.some((item) => item.name.toLowerCase() === name.toLowerCase())) return
+                  setTechnologies((prev) => [...prev, { id: createId(), name, active: true }])
+                  setTechInput('')
+                }}
+              >
+                <FiPlus /> Add
+              </button>
+            </div>
+            <div className="stack">
+              {technologies.map((tech) => (
+                <article className="list-card" key={tech.id}>
+                  <strong>{tech.name}</strong>
+                  <button className="btn ghost" onClick={() => setTechnologies((prev) => prev.map((item) => (item.id === tech.id ? { ...item, active: !item.active } : item)))}>
+                    {tech.active ? 'Deactivate' : 'Activate'}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'history' && (
+          <section className="panel">
+            <div className="section-title">
+              <h2>History</h2>
+            </div>
+            <div className="grid three">
+              <label>
+                <FiFilter /> Date
+                <input type="date" value={historyFilters.date} onChange={(e) => setHistoryFilters((prev) => ({ ...prev, date: e.target.value }))} />
+              </label>
+              <label>
+                Drive Type
+                <select value={historyFilters.driveType} onChange={(e) => setHistoryFilters((prev) => ({ ...prev, driveType: e.target.value }))}>
+                  <option value="All">All</option>
+                  {DRIVE_TYPES.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Skill
+                <select value={historyFilters.technologyId} onChange={(e) => setHistoryFilters((prev) => ({ ...prev, technologyId: e.target.value }))}>
+                  <option value="All">All</option>
+                  {technologies.map((tech) => (
+                    <option key={tech.id} value={tech.id}>
+                      {tech.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="stack">
+              {filteredHistory
+                .slice()
+                .reverse()
+                .map((item) => (
+                  <article className="history-card" key={item.id}>
+                    <div className="section-title compact">
+                      <h3>
+                        {item.technologyName} | {item.count} interviews
+                      </h3>
+                      <span>{formatDisplayDate(item.date)}</span>
+                    </div>
+                    <p>Recipient: {item.recipient}</p>
+                    <p>TR: {item.trName} ({fmtTime(item.trStart)} - {fmtTime(item.trEnd)})</p>
+                    <p>MR: {item.mrName} ({fmtTime(item.mrStart)} - {fmtTime(item.mrEnd)})</p>
+                    <button
+                      className="btn ghost"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(item.message)
+                        } catch {
+                          // ignored
+                        }
+                      }}
+                    >
+                      <FiCopy /> Copy Message
+                    </button>
+                  </article>
+                ))}
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'settings' && (
+          <section className="panel">
+            <div className="section-title">
+              <h2>Settings & Backup</h2>
+            </div>
+            <label>
+              Grade Levels (comma separated, in order)
+              <textarea rows="3" value={gradeInput} onChange={(e) => setGradeInput(e.target.value)} />
+            </label>
+            <button className="btn ghost" onClick={saveGrades}>
+              <FiSave /> Save Grades
+            </button>
+
+            <div className="section-title compact">
+              <h3>Remembered Greeting Names</h3>
+            </div>
+            <div className="chip-wrap">
+              {recipients.map((name) => (
+                <span className="chip active" key={name}>
+                  {name}
+                  <button type="button" onClick={() => removeRecipient(name)}>
+                    <FiX />
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            <div className="actions-row">
+              <button className="btn primary" onClick={exportData}>
+                <FiDownload /> Export Backup
+              </button>
+              <label className="btn ghost file-upload">
+                <FiUpload /> Import Backup
+                <input type="file" accept="application/json" onChange={importData} />
+              </label>
+            </div>
+          </section>
+        )}
+      </main>
+    </div>
+  )
+}
+
+export default App
