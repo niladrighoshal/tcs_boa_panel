@@ -266,6 +266,12 @@ textarea:focus {
   background: #e9faef;
 }
 
+.icon-link.disabled {
+  color: #98a8b2;
+  background: #eef3f6;
+  pointer-events: none;
+}
+
 .badge {
   background: #e5faf5;
   color: #13795b;
